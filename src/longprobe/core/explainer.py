@@ -105,9 +105,9 @@ class Explainer:
                     "id": doc_id,
                     "text": doc_text,
                     "score": doc_score,
-                    "rank": rank
+                    "rank": rank,
                 })
-            
+
             # Index by ID and text for matching
             current_ranks[doc_id] = rank
             current_ranks[doc_text] = rank
