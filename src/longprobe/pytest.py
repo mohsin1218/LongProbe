@@ -13,6 +13,6 @@ Usage::
         assert probe_result.recall_score >= 0.8
 """
 
-from longprobe.pytest_plugin import golden_check  # noqa: F401
+from longprobe.pytest_plugin import golden_check
 
 __all__ = ["golden_check"]
