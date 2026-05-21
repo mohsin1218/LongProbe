@@ -30,8 +30,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import functools
 import pytest
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
+from longprobe.core.golden import GoldenQuestion
+from longprobe.core.scorer import RecallScorer
+
+T = TypeVar("T", bound=Callable)
 if TYPE_CHECKING:
     from _pytest.config import Config
     from _pytest.config.argparsing import Parser
@@ -128,54 +134,41 @@ def longprobe_fail_threshold(request: FixtureRequest) -> float | None:
 # ---------------------------------------------------------------------------
 
 
+def _load_adapter_from_config(config_path: str) -> Any:
+    """Helper to lazily build an adapter from the longprobe configuration file."""
+    from pathlib import Path
+    
+    try:
+        from longprobe.config import ProbeConfig
+    except ImportError:
+        pytest.skip("longprobe is not installed; skipping adapter")
+        return None  # pragma: no cover
+    
+    config_file = Path(config_path)
+    if not config_file.exists():
+        pytest.skip(f"LongProbe config not found: {config_path}")
+        return None
+        
+    try:
+        cfg = ProbeConfig.from_yaml(str(config_file))
+    except Exception as exc:
+        pytest.skip(f"Cannot load longprobe config: {exc}")
+        return None  # pragma: no cover
+        
+    try:
+        from longprobe.cli.main import _create_adapter_from_config as create_adapter
+        return create_adapter(cfg)
+    except Exception as exc:
+        pytest.skip(f"Failed to create adapter: {exc}")
+        return None
+
+
 @pytest.fixture(scope="session")
 def longprobe_adapter(
     longprobe_config_path: str,
 ) -> Any:
-    """Lazily build an adapter from the longprobe configuration file.
-
-    Override this fixture in your ``conftest.py`` if you need a custom adapter
-    (e.g. ``ChromaAdapter``, ``PineconeAdapter``, etc.) or different
-    initialisation logic.
-    """
-    try:
-        from longprobe.config import load_config
-    except ImportError:
-        pytest.skip("longprobe is not installed; skipping adapter fixture")
-        return None  # pragma: no cover - unreachable, satisfies type checker
-
-    try:
-        cfg = load_config(longprobe_config_path)
-    except (FileNotFoundError, ValueError) as exc:
-        pytest.skip(f"Cannot load longprobe config: {exc}")
-        return None  # pragma: no cover
-
-    adapter_cls = cfg.get("adapter_class")
-    if adapter_cls is None:
-        pytest.skip(
-            "No adapter_class specified in longprobe config; "
-            "provide a custom longprobe_adapter fixture instead"
-        )
-        return None  # pragma: no cover
-
-    # Resolve dotted-path strings, e.g. "longprobe.ChromaAdapter"
-    parts = adapter_cls.rsplit(".", 1)
-    if len(parts) == 2:
-        import importlib
-
-        mod_path, attr_name = parts
-        try:
-            mod = importlib.import_module(mod_path)
-            adapter_cls = getattr(mod, attr_name)
-        except (ImportError, AttributeError) as exc:
-            pytest.skip(f"Cannot resolve adapter class '{adapter_cls}': {exc}")
-            return None  # pragma: no cover
-
-    # Forward remaining config keys as kwargs to the adapter constructor.
-    adapter_kwargs = {
-        k: v for k, v in cfg.items() if k not in ("adapter_class",)
-    }
-    return adapter_cls(**adapter_kwargs)
+    """Lazily build an adapter from the longprobe configuration file."""
+    return _load_adapter_from_config(longprobe_config_path)
 
 
 @pytest.fixture(scope="session")
@@ -200,6 +193,109 @@ def longprobe_probe(
         return None  # pragma: no cover
 
     return LongProbe(adapter=longprobe_adapter, goldens_path=longprobe_goldens_path)
+
+
+# ---------------------------------------------------------------------------
+# Golden Check Decorator
+# ---------------------------------------------------------------------------
+
+
+def golden_check(
+    question: str,
+    must_contain: list[str],
+    top_k: int = 5,
+    match_mode: str = "text",
+    threshold: float = 1.0,
+    tags: list[str] | None = None,
+) -> Callable[[T], T]:
+    """Decorator to define an inline RAG regression test.
+
+    This decorator executes a retrieval call using the active longprobe_adapter
+    and injects the resulting QuestionResult as the `probe_result` argument
+    into the decorated test function.
+    """
+    import inspect
+    
+    def decorator(fn: T) -> T:
+        sig = inspect.signature(fn)
+        
+        # We need to tell pytest NOT to look for 'probe_result' as a fixture.
+        # We also need to ensure pytest passes us the 'request' fixture.
+        wrapper_params = []
+        needs_request = True
+        for name, p in sig.parameters.items():
+            if name == "probe_result":
+                continue
+            if name == "request":
+                needs_request = False
+            wrapper_params.append(p)
+            
+        if needs_request:
+            wrapper_params.append(
+                inspect.Parameter("request", inspect.Parameter.POSITIONAL_OR_KEYWORD)
+            )
+            
+        @functools.wraps(fn)
+        @pytest.mark.longprobe
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            request = kwargs.pop("request") if needs_request else kwargs["request"]
+            
+            # Get the adapter using the fixture.
+            # If the user overrode 'longprobe_adapter' in their conftest, we get their mock.
+            # Otherwise we get the default one which loads from longprobe.yaml.
+            try:
+                adapter = request.getfixturevalue("longprobe_adapter")
+            except Exception as exc:
+                pytest.skip(f"LongProbe adapter could not be loaded: {exc}")
+                return None
+
+            if adapter is None:
+                pytest.skip("LongProbe adapter could not be loaded (returned None).")
+                return None
+
+            golden_q = GoldenQuestion(
+                id=fn.__name__,
+                question=question,
+                match_mode=match_mode,
+                required_chunks=must_contain,
+                top_k=top_k,
+                tags=tags or [],
+            )
+
+            # Retrieve docs
+            import time
+            start = time.perf_counter()
+            retrieved_docs = adapter.retrieve(question, top_k)
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+
+            # Score
+            scorer = RecallScorer(recall_threshold=threshold)
+            result = scorer.score(golden_q, retrieved_docs)
+            result.latency_ms = elapsed_ms
+
+            # Print rich feedback on failure (if we can)
+            if not result.passed:
+                try:
+                    from rich.console import Console
+                    console = Console()
+                    missing_str = ", ".join(f'"{c}"' for c in result.missing_chunks)
+                    console.print(
+                        f"\n[bold red]LongProbe Failure:[/bold red] "
+                        f"Recall dropped to {result.recall_score:.2f} (Threshold: {threshold:.2f}). "
+                        f"Missing chunks: {missing_str}"
+                    )
+                except ImportError:
+                    pass
+
+            # Inject the result into the original function
+            kwargs["probe_result"] = result
+            return fn(*args, **kwargs)
+
+        # Apply the new signature so pytest knows what fixtures to inject
+        wrapper.__signature__ = inspect.Signature(wrapper_params)  # type: ignore[attr-defined]
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 # ---------------------------------------------------------------------------

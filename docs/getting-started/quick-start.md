@@ -47,25 +47,27 @@ questions:
     top_k: 5
 ```
 
-## 4. Configure Your Vector Store
+## 4. Configure Your Retriever
 
-Edit `longprobe.yaml`:
+Edit `longprobe.yaml`. The **HTTP adapter** is the recommended default because it connects to any live RAG system or API, including LongTrainer or custom backend services:
 
 ```yaml
 retriever:
-  type: "chroma"
-  chroma:
-    persist_directory: "./chroma_db"
-    collection: "my_documents"
-
-embedder:
-  provider: "local"
-  model: "text-embedding-3-small"
+  type: "http"
+  http:
+    url: "http://localhost:8000/api/retrieve"
+    method: "POST"
+    body_template: '{"query": "{question}"}'
+    response_mapping:
+      results_path: "data.chunks"
+      text_field: "content"
 
 scoring:
   recall_threshold: 0.8
   fail_on_regression: true
 ```
+
+*(Note: If you want to query a database directly, you can also configure direct database adapters like Qdrant or ChromaDB. See the Vector Store adapter integrations for details).*
 
 ## 5. Run Your First Check
 

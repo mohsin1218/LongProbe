@@ -14,7 +14,7 @@ from longprobe.core.embedder import QueryEmbedder
 from longprobe.core.golden import GoldenQuestion, GoldenSet
 from longprobe.core.scorer import ProbeReport, QuestionResult, RecallScorer
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"
 
 __all__ = [
     "AbstractRetrieverAdapter",

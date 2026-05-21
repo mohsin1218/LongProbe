@@ -143,18 +143,18 @@ questions:
 
 ### Configure Your Retriever
 
-Edit `longprobe.yaml`:
+Edit `longprobe.yaml`. The **HTTP adapter** is the recommended default because it works with ANY backend, including LongTrainer or custom RAG APIs:
 
 ```yaml
 retriever:
-  type: "chroma"
-  chroma:
-    persist_directory: "./chroma_db"
-    collection: "my_documents"
-
-embedder:
-  provider: "local"
-  model: "text-embedding-3-small"
+  type: "http"
+  http:
+    url: "http://localhost:8000/api/retrieve"
+    method: "POST"
+    body_template: '{"query": "{question}"}'
+    response_mapping:
+      results_path: "data.chunks"
+      text_field: "content"
 
 scoring:
   recall_threshold: 0.8
@@ -162,8 +162,9 @@ scoring:
 
 baseline:
   db_path: ".longprobe/baselines.db"
-  auto_compare: true
 ```
+
+*Note: You can also connect directly to a vector database for enterprise scale (e.g. `type: qdrant`) or for local prototyping (e.g. `type: chroma`). See Adapters below.*
 
 ### Run Checks
 
@@ -345,13 +346,18 @@ LongProbe supports multiple vector stores and retrieval frameworks:
 | **LangChain** | Programmatic | `LangChainRetrieverAdapter` |
 | **LlamaIndex** | Programmatic | `LlamaIndexRetrieverAdapter` |
 
-### ChromaDB Example
+### Direct Database Example (Qdrant)
 
 ```yaml
 retriever:
-  type: chroma
-  collection: my_collection
-  persist_directory: ./chroma_db
+  type: qdrant
+  qdrant:
+    url: "http://localhost:6333"
+    collection_name: "enterprise_docs"
+
+embedder:
+  provider: "openai"
+  model: "text-embedding-3-small"
 ```
 
 ### HTTP API Example

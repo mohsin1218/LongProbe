@@ -49,6 +49,12 @@ pip install longprobe[pinecone]
 pip install longprobe[qdrant]
 ```
 
+### TUI Support (Interactive Management)
+
+```bash
+pip install longprobe[tui]
+```
+
 ### All Optional Dependencies
 
 ```bash
@@ -58,7 +64,7 @@ pip install longprobe[all]
 ### Specific Combinations
 
 ```bash
-pip install longprobe[chroma,openai]
+pip install longprobe[qdrant,openai,tui]
 ```
 
 ## Development Installation
@@ -86,7 +92,7 @@ longprobe --version
 You should see output like:
 
 ```
-LongProbe version 0.1.0
+LongProbe version 0.1.2
 ```
 
 ## Next Steps

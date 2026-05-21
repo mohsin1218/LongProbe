@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-21
+
+### Added
+- Pytest `@golden_check` decorator for seamless, inline RAG regression testing in existing test suites with auto-discovery and conftest override options.
+- CLI `longprobe explain` command for RAG diagnostic analysis, including interloper detection, missing chunk score tracking, and automated recommendations.
+- Interactive `longprobe edit` TUI command using Textual, enabling terminal-based golden question set management (Dual pane, list management, direct YAML editing).
+- `tui` optional dependency extra in `pyproject.toml` for Textual support.
+
+### Changed
+- Realigned documentation and examples to focus on professional HTTP and Qdrant database adapters as top-tier recommendations, deprecating ChromaDB to a prototyping footnote.
+
 ## [0.1.1] - 2026-05-06
 
 ### Added
@@ -70,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions integration examples
 - Example configuration files and golden sets
 
-[Unreleased]: https://github.com/ENDEVSOLS/LongProbe/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ENDEVSOLS/LongProbe/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ENDEVSOLS/LongProbe/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ENDEVSOLS/LongProbe/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ENDEVSOLS/LongProbe/releases/tag/v0.1.0
