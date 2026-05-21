@@ -29,7 +29,7 @@ Command line::
 from __future__ import annotations
 
 import functools
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import Any, Callable, TYPE_CHECKING, TypeVar
 
 import pytest
 

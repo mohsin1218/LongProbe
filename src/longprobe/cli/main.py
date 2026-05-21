@@ -40,8 +40,8 @@ from longprobe.config import GeneratorConfig, ProbeConfig
 from longprobe.core.baseline import BaselineStore
 from longprobe.core.diff import DiffReporter
 from longprobe.core.docparser import DocumentParser
-from longprobe.core.generator import QuestionGenerator
 from longprobe.core.explainer import Explainer
+from longprobe.core.generator import QuestionGenerator
 from longprobe.core.golden import GoldenQuestion, GoldenSet, generate_question_id
 from longprobe.core.scorer import ProbeReport, RecallScorer
 
