@@ -2,6 +2,7 @@
 Textual TUI for LongProbe Golden Sets.
 """
 
+import contextlib
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -163,10 +164,8 @@ class EditorApp(App):
             c.strip() for c in chunks_text.splitlines() if c.strip()
         ]
 
-        try:
+        with contextlib.suppress(ValueError):
             q.top_k = int(self.query_one("#input-top-k", Input).value)
-        except ValueError:
-            pass
 
         tags_text = self.query_one("#input-tags", Input).value
         q.tags = [t.strip() for t in tags_text.split(",") if t.strip()]

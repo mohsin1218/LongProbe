@@ -28,8 +28,9 @@ Command line::
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import functools
-from typing import Any, Callable, TYPE_CHECKING, TypeVar
+from typing import Any, TYPE_CHECKING, TypeVar
 
 import pytest
 
