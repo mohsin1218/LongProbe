@@ -1566,30 +1566,30 @@ def explain(
     # 1. Load config & adapter
     cfg = _load_config(config)
     adapter = _create_adapter_from_config(cfg)
-    
+
     # 2. Load golden set and find the specific question
     golden_set = _load_golden_set(goldens)
     if golden_set is None:
         raise typer.Exit(1)
-        
+
     target_q = next((q for q in golden_set.questions if q.id == question_id), None)
     if not target_q:
         console.print(f"[bold red]Error:[/bold red] Question '{question_id}' not found in {goldens}")
         raise typer.Exit(1)
-        
+
     # 3. Score the question currently
     scorer = RecallScorer(recall_threshold=cfg.scoring.recall_threshold)
     with Progress(SpinnerColumn(), TextColumn("Retrieving current results..."), console=console, transient=True):
         retrieved_docs = adapter.retrieve(target_q.question, target_q.top_k)
         current_result = scorer.score(target_q, retrieved_docs)
-        
+
     # 4. Load baseline result if any
     baseline_result = None
     store = BaselineStore(db_path=cfg.baseline.db_path)
     baseline_report = store.load(baseline_label)
     if baseline_report:
         baseline_result = next((r for r in baseline_report.results if r.question_id == question_id), None)
-        
+
     # 5. Explain!
     with Progress(SpinnerColumn(), TextColumn("Running extended diagnostics..."), console=console, transient=True):
         explainer = Explainer()
@@ -1601,19 +1601,19 @@ def explain(
             baseline_result=baseline_result,
             adapter=adapter,
             top_k=target_q.top_k,
-            extended_top_k=extended_top_k
+            extended_top_k=extended_top_k,
         )
-        
+
     # 6. Render
     console.print()
     console.print(f"[bold cyan]🔍 Explain: {explanation.question_id}[/bold cyan]")
     console.print(f"   [bold]Question:[/bold] \"{explanation.question}\"")
-    
+
     status_color = "green" if explanation.status == "pass" else "red" if explanation.status == "fail" else "yellow"
     status_text = "✅ PASS" if explanation.status == "pass" else "❌ FAIL" if explanation.status == "fail" else "⚠️ REGRESSION"
     console.print(f"   [bold]Status:[/bold] [{status_color}]{status_text}[/{status_color}] (Recall: {explanation.current_recall:.0%})")
     console.print()
-    
+
     if explanation.missing_chunks:
         console.print("   [bold red]Missing Chunks:[/bold red]")
         for m in explanation.missing_chunks:
@@ -1621,7 +1621,7 @@ def explain(
             found_str = f"found at rank {m.current_extended_rank}" if m.current_extended_rank else f"NOT FOUND in top-{extended_top_k}"
             console.print(f"     • \"{m.chunk_text_or_id}\"{was_base} — {found_str}")
         console.print()
-        
+
     if explanation.interlopers:
         console.print(f"   [bold yellow]Current Top-{target_q.top_k} Results (Interlopers?):[/bold yellow]")
         for i in explanation.interlopers:
@@ -1630,7 +1630,7 @@ def explain(
             text_short = text_short.replace('\n', ' ')
             console.print(f"     [[bold]{i.current_rank}[/bold]] score={i.score:.3f} | {text_short}")
         console.print()
-        
+
     console.print(f"   [bold cyan]💡 Recommendation:[/bold cyan]\n      {explanation.recommendation}")
     console.print()
 
@@ -1655,24 +1655,24 @@ def edit(
         console.print("[bold red]Error:[/bold red] The TUI dependencies are not installed.")
         console.print("Install them with [cyan]pip install longprobe[tui][/cyan]")
         raise typer.Exit(1)
-        
+
     if not goldens.exists():
         console.print(f"[bold yellow]Warning:[/bold yellow] File '{goldens}' not found.")
         create = typer.confirm("Would you like to create a new golden set?")
         if not create:
             raise typer.Exit(0)
-            
+
         golden_set = GoldenSet(
             name="new-golden-set",
             version="1.0",
-            questions=[]
+            questions=[],
         )
         golden_set.to_yaml(str(goldens))
     else:
         golden_set = _load_golden_set(goldens)
         if golden_set is None:
             raise typer.Exit(1)
-            
+
     # Launch TUI
     editor = EditorApp(golden_set, str(goldens))
     editor.run()

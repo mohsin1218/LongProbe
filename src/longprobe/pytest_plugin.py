@@ -28,11 +28,10 @@ Command line::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 import functools
-import pytest
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
+
+import pytest
 
 from longprobe.core.golden import GoldenQuestion
 from longprobe.core.scorer import RecallScorer
@@ -137,24 +136,24 @@ def longprobe_fail_threshold(request: FixtureRequest) -> float | None:
 def _load_adapter_from_config(config_path: str) -> Any:
     """Helper to lazily build an adapter from the longprobe configuration file."""
     from pathlib import Path
-    
+
     try:
         from longprobe.config import ProbeConfig
     except ImportError:
         pytest.skip("longprobe is not installed; skipping adapter")
         return None  # pragma: no cover
-    
+
     config_file = Path(config_path)
     if not config_file.exists():
         pytest.skip(f"LongProbe config not found: {config_path}")
         return None
-        
+
     try:
         cfg = ProbeConfig.from_yaml(str(config_file))
     except Exception as exc:
         pytest.skip(f"Cannot load longprobe config: {exc}")
         return None  # pragma: no cover
-        
+
     try:
         from longprobe.cli.main import _create_adapter_from_config as create_adapter
         return create_adapter(cfg)
@@ -215,10 +214,10 @@ def golden_check(
     into the decorated test function.
     """
     import inspect
-    
+
     def decorator(fn: T) -> T:
         sig = inspect.signature(fn)
-        
+
         # We need to tell pytest NOT to look for 'probe_result' as a fixture.
         # We also need to ensure pytest passes us the 'request' fixture.
         wrapper_params = []
@@ -229,17 +228,17 @@ def golden_check(
             if name == "request":
                 needs_request = False
             wrapper_params.append(p)
-            
+
         if needs_request:
             wrapper_params.append(
                 inspect.Parameter("request", inspect.Parameter.POSITIONAL_OR_KEYWORD)
             )
-            
+
         @functools.wraps(fn)
         @pytest.mark.longprobe
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             request = kwargs.pop("request") if needs_request else kwargs["request"]
-            
+
             # Get the adapter using the fixture.
             # If the user overrode 'longprobe_adapter' in their conftest, we get their mock.
             # Otherwise we get the default one which loads from longprobe.yaml.

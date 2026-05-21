@@ -84,22 +84,22 @@ class Explainer:
             status = "fail"
 
         baseline_recall = baseline_result.recall_score if baseline_result else None
-        
+
         # 1. Fetch current top-k chunks to identify interlopers
         # 2. Fetch extended top-k to find where missing chunks went
         # We can just fetch extended_top_k once.
         extended_docs = adapter.retrieve(question_text, extended_top_k)
-        
+
         # Map out current extended ranks
         current_ranks: dict[str, int] = {}
         top_k_chunks: list[dict[str, Any]] = []
-        
+
         for i, doc in enumerate(extended_docs):
             rank = i + 1
             doc_id = doc.get("id", str(i))
             doc_text = doc.get("text", "")
             doc_score = doc.get("score", 0.0)
-            
+
             if rank <= top_k:
                 top_k_chunks.append({
                     "id": doc_id,
@@ -111,25 +111,25 @@ class Explainer:
             # Index by ID and text for matching
             current_ranks[doc_id] = rank
             current_ranks[doc_text] = rank
-            
+
         # Map out baseline ranks if possible
         # (Our baseline QuestionResult doesn't store exact ranks, but we know if they were in found_chunks)
-        
+
         missing_details: list[MissingChunkDetail] = []
         for missing in current_result.missing_chunks:
             # Check if it was found in baseline
             was_in_baseline = False
             if baseline_result and missing in baseline_result.found_chunks:
                 was_in_baseline = True
-                
+
             # Find where it is now (in extended search)
             current_rank = current_ranks.get(missing)
-            
+
             missing_details.append(
                 MissingChunkDetail(
                     chunk_text_or_id=missing,
-                    baseline_rank=1 if was_in_baseline else None, # We don't have exact baseline rank, just presence
-                    current_extended_rank=current_rank
+                    baseline_rank=1 if was_in_baseline else None,  # We don't have exact baseline rank, just presence
+                    current_extended_rank=current_rank,
                 )
             )
 
@@ -143,14 +143,14 @@ class Explainer:
                 if req == chunk["id"] or req in chunk["text"]:
                     is_required = True
                     break
-                    
+
             if not is_required:
                 interlopers.append(
                     InterloperDetail(
                         chunk_id=chunk["id"],
                         text=chunk["text"],
                         current_rank=chunk["rank"],
-                        score=chunk["score"] or 0.0
+                        score=chunk["score"] or 0.0,
                     )
                 )
 
@@ -158,10 +158,10 @@ class Explainer:
         recommendation = "Review the interlopers to see if they are semantically similar but incorrect."
         if any(m.current_extended_rank is not None for m in missing_details):
             recommendation = "Some missing chunks were found further down the ranking. Consider increasing top_k or improving the embedding index."
-            
+
         if not baseline_result:
             recommendation += " (No baseline saved. Run `longprobe baseline save` to enable rank-shift tracking.)"
-            
+
         return ExplainResult(
             question_id=question_id,
             question=question_text,
@@ -170,5 +170,5 @@ class Explainer:
             baseline_recall=baseline_recall,
             missing_chunks=missing_details,
             interlopers=interlopers,
-            recommendation=recommendation
+            recommendation=recommendation,
         )
