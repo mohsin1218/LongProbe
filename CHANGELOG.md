@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-08-11
+
+> **v0.1.2 completes the v0.2.0 Developer Experience roadmap milestone!**
+
+### Added
+- **Draft vs. Approved Status Schema**: Added `status` field (`draft` / `approved`) to `GoldenQuestion`. Auto-captured questions start in `draft` state so unvetted questions do not pollute regression suites.
+- **Interactive TUI Editor (`longprobe edit`)**: Terminal editor using Rich to browse, filter, edit, and approve draft golden questions into trusted ground truth.
+- **Pytest Plugin (`pytest-longprobe`)**: Native `@longprobe_check` pytest fixture and harness integration for embedding retrieval assertions in test suites.
+- **Strict Baseline Quality Gating (`longprobe baseline save`)**: Prevents saving low-recall or degraded probe reports as trusted baselines (`--threshold`), evaluating strictly on approved questions.
+- **Two-Baseline Comparison (`longprobe diff <a` `<b>`)**: Compare any two historical snapshot baselines side-by-side with `--threshold` quality verification.
+- **Diagnostic Summaries (`longprobe explain`)**: Human-readable failure analysis showing chunk rank deltas and distance drops on regression.
+- **CLI `--include-drafts` Option**: Flag on `check` and live `diff` to evaluate draft questions on demand.
+
 ## [0.1.1] - 2026-05-06
 
 ### Added

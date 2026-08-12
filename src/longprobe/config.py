@@ -196,7 +196,7 @@ class GeneratorConfig:
     Attributes:
         provider: LLM provider to use.  One of ``"openai"``, ``"anthropic"``,
             ``"gemini"``, ``"ollama"``, or any provider supported by litellm.
-        model: Model identifier (e.g. ``"gpt-4o-mini"``, ``"claude-3-haiku-20240307"``).
+        model: Model identifier (e.g. ``"gpt-5.5-instant"``, ``"claude-haiku-4-5"``).
         api_key: API key for the LLM provider.  Supports ``${ENV_VAR}`` expansion.
         base_url: Custom base URL for the provider (useful for Ollama or
             self-hosted endpoints).
@@ -206,7 +206,7 @@ class GeneratorConfig:
     """
 
     provider: str = "openai"
-    model: str = "gpt-4o-mini"
+    model: str = "gpt-5.5-instant"
     api_key: str = ""
     base_url: str = ""
     num_questions: int = 50
@@ -432,7 +432,7 @@ def _build_generator_config(raw: dict[str, Any]) -> GeneratorConfig:
 
     return GeneratorConfig(
         provider=_str(raw, "provider", "openai"),
-        model=_str(raw, "model", "gpt-4o-mini"),
+        model=_str(raw, "model", "gpt-5.5-instant"),
         api_key=_str(raw, "api_key", ""),
         base_url=_str(raw, "base_url", ""),
         num_questions=_int(raw, "num_questions", 50),

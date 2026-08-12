@@ -9,7 +9,7 @@ Typical usage::
     from longprobe.config import GeneratorConfig
     from longprobe.core.generator import QuestionGenerator
 
-    config = GeneratorConfig(provider="openai", model="gpt-4o-mini")
+    config = GeneratorConfig(provider="openai", model="gpt-5.5-instant")
     gen = QuestionGenerator(config)
     questions = gen.generate([("doc1.txt", "Some content...")], num_questions=10)
     for q in questions:

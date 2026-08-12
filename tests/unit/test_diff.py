@@ -591,3 +591,39 @@ class TestMixedScenario:
         assert len(diff.improvements) == 1
         assert diff.improvements[0].question_id == "q2"
         assert "q3" in diff.unchanged
+
+
+class TestTwoBaselineDiffCLI:
+
+    def test_two_baseline_diff_with_threshold_failure(self, tmp_path, monkeypatch):
+        import yaml
+        from longprobe.cli.main import diff as cli_diff
+        from longprobe.core.baseline import BaselineStore
+
+        db_path = tmp_path / "baselines.db"
+        store = BaselineStore(db_path=str(db_path))
+
+        r1 = _make_report("gs", "1.0", 0.95, [_make_question_result("q1", "Q1", 0.95, ["c1"])])
+        r2 = _make_report("gs", "1.0", 0.70, [_make_question_result("q1", "Q1", 0.70, ["c1"])])
+
+        store.save(r1, "base-v1")
+        store.save(r2, "base-v2")
+
+        config_path = tmp_path / "longprobe.yaml"
+        config_path.write_text(yaml.dump({"baseline": {"db_path": str(db_path)}}))
+
+        with pytest.raises(SystemExit) as exc:
+            cli_diff(
+                baseline_a="base-v1",
+                baseline_b="base-v2",
+                baseline_label="latest",
+                goldens=tmp_path / "goldens.yaml",
+                config=config_path,
+                output="json",
+                top_k=None,
+                threshold=0.80,
+                tag=[],
+                include_drafts=False,
+            )
+
+        assert exc.value.code == 1

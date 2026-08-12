@@ -5,6 +5,7 @@ questions:
   - id: "q1"
     question: "What is the termination clause in the service agreement?"
     match_mode: "id"
+    status: "approved"
     required_chunks:
       - "contracts_chunk_42"
       - "contracts_chunk_43"
@@ -14,6 +15,7 @@ questions:
   - id: "q2"
     question: "What are the payment terms for enterprise clients?"
     match_mode: "text"
+    status: "approved"
     required_chunks:
       - "net 30 days from invoice date"
       - "enterprise clients receive a 15% discount"
@@ -23,6 +25,7 @@ questions:
   - id: "q3"
     question: "Who are the authorized signatories for the company?"
     match_mode: "semantic"
+    status: "approved"
     semantic_threshold: 0.80
     required_chunks:
       - "The following officers are authorized to sign contracts on behalf of the company: CEO, CFO, and General Counsel."
@@ -32,6 +35,7 @@ questions:
   - id: "q4"
     question: "What is the refund policy for annual subscriptions?"
     match_mode: "text"
+    status: "approved"
     required_chunks:
       - "full refund within 30 days"
       - "prorated refund after 30 days"
@@ -41,6 +45,7 @@ questions:
   - id: "q5"
     question: "How is user data encrypted at rest?"
     match_mode: "text"
+    status: "approved"
     required_chunks:
       - "AES-256 encryption"
       - "data at rest is encrypted using industry standard algorithms"

@@ -72,6 +72,13 @@ def pytest_addoption(parser: Parser) -> None:
             "Fail tests if recall drops below this value."
         ),
     )
+    group.addoption(
+        "--longprobe-include-drafts",
+        action="store_true",
+        dest="longprobe_include_drafts",
+        default=False,
+        help="Include draft questions in pytest evaluation runs.",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -85,6 +92,7 @@ def pytest_configure(config: Config) -> None:
     config._longprobe_goldens = config.getoption("longprobe_goldens", "goldens.yaml")  # type: ignore[attr-defined]
     config._longprobe_config = config.getoption("longprobe_config", "longprobe.yaml")  # type: ignore[attr-defined]
     config._longprobe_fail_threshold = config.getoption("longprobe_fail_threshold", None)  # type: ignore[attr-defined]
+    config._longprobe_include_drafts = config.getoption("longprobe_include_drafts", False)  # type: ignore[attr-defined]
     config._longprobe_report = None  # type: ignore[attr-defined]
 
 
@@ -121,6 +129,12 @@ def longprobe_fail_threshold(request: FixtureRequest) -> float | None:
     threshold check is applied.
     """
     return request.config._longprobe_fail_threshold  # type: ignore[attr-defined]
+
+
+@pytest.fixture(scope="session")
+def longprobe_include_drafts(request: FixtureRequest) -> bool:
+    """Fixture that returns whether draft questions are included in evaluation runs."""
+    return request.config._longprobe_include_drafts  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +196,7 @@ def longprobe_adapter(
 def longprobe_probe(
     longprobe_adapter: Any,
     longprobe_goldens_path: str,
+    longprobe_include_drafts: bool,
 ) -> Any:
     """Return a fully-initialised :class:`~longprobe.LongProbe` instance.
 
@@ -199,7 +214,11 @@ def longprobe_probe(
         pytest.skip("No adapter available; skipping probe fixture")
         return None  # pragma: no cover
 
-    return LongProbe(adapter=longprobe_adapter, goldens_path=longprobe_goldens_path)
+    return LongProbe(
+        adapter=longprobe_adapter,
+        goldens_path=longprobe_goldens_path,
+        include_drafts=longprobe_include_drafts,
+    )
 
 
 # ---------------------------------------------------------------------------

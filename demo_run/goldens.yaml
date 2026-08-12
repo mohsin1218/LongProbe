@@ -1,24 +1,24 @@
 name: my-golden-set
 version: '1.0'
 questions:
-- id: q_dummy
-  question: Dummy
+- id: q_what_are_enterprise_payment_terms
+  question: What are the enterprise payment terms?
   required_chunks:
-  - dummy
-  match_mode: id
+  - Our enterprise payment terms are net 60 days.
+  - A 2% early payment discount is available for payments within 10 days.
+  match_mode: text
+  status: approved
   semantic_threshold: 0.85
   top_k: 5
-  tags: []
+  tags:
+  - doc:billing
   metadata: {}
 - id: q_what_is_the_refund_policy
   question: What is the refund policy?
   required_chunks:
-  - The refund policy allows for full refunds within 30 days of purchase. No questions
-    asked.
-  - Our enterprise payment terms are net 60 days.
-  - Standard shipping takes 5-7 business days.
-  - Data is encrypted at rest using AES-256 and in transit using TLS 1.3.
+  - The refund policy allows for full refunds within 30 days of purchase. No questions asked.
   match_mode: text
+  status: approved
   semantic_threshold: 0.85
   top_k: 5
   tags:
@@ -28,11 +28,8 @@ questions:
   question: How is data encrypted?
   required_chunks:
   - Data is encrypted at rest using AES-256 and in transit using TLS 1.3.
-  - The refund policy allows for full refunds within 30 days of purchase. No questions
-    asked.
-  - Our enterprise payment terms are net 60 days.
-  - Standard shipping takes 5-7 business days.
   match_mode: text
+  status: approved
   semantic_threshold: 0.85
   top_k: 5
   tags:

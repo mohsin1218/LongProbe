@@ -27,6 +27,7 @@ import yaml
 # ---------------------------------------------------------------------------
 
 _VALID_MATCH_MODES: set[str] = {"id", "text", "semantic"}
+_VALID_STATUSES: set[str] = {"approved", "draft"}
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ class GoldenQuestion:
             are treated as non-matching.
         top_k: How many results the retriever should return.
         tags: Free-form tags for filtering / grouping questions.
+        status: Verification status, either ``"approved"`` or ``"draft"``.
         metadata: Arbitrary additional metadata attached to this question.
     """
 
@@ -60,6 +62,7 @@ class GoldenQuestion:
     semantic_threshold: float = 0.85
     top_k: int = 5
     tags: list[str] = field(default_factory=list)
+    status: str = "approved"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -123,6 +126,14 @@ class GoldenSet:
             if not required or not isinstance(required, list) or len(required) == 0:
                 raise ValueError(
                     f"Question '{qid}' must have a non-empty 'required_chunks' list."
+                )
+
+            # -- status ---------------------------------------------------
+            status_val = str(raw.get("status", "approved")).strip().lower()
+            if status_val not in _VALID_STATUSES:
+                raise ValueError(
+                    f"Question '{qid}' has invalid status '{status_val}'. "
+                    f"Must be one of {sorted(_VALID_STATUSES)}."
                 )
 
             # -- match_mode -----------------------------------------------
@@ -245,6 +256,7 @@ class GoldenSet:
                     semantic_threshold=float(raw.get("semantic_threshold", 0.85)),
                     top_k=int(raw.get("top_k", 5)),
                     tags=[str(t) for t in raw.get("tags", [])],
+                    status=str(raw.get("status", "approved")).strip().lower(),
                     metadata=dict(raw.get("metadata", {})),
                 )
             )
@@ -274,6 +286,7 @@ class GoldenSet:
                     "semantic_threshold": q.semantic_threshold,
                     "top_k": q.top_k,
                     "tags": q.tags,
+                    "status": q.status,
                     "metadata": q.metadata,
                 }
                 for q in self.questions
@@ -316,6 +329,23 @@ class GoldenSet:
             q for q in self.questions
             if all(t in q.tags for t in tags)
         ]
+        return GoldenSet(
+            name=self.name,
+            version=self.version,
+            questions=filtered,
+        )
+
+    def filter_by_status(self, status: str | list[str]) -> GoldenSet:
+        """Return a new :class:`GoldenSet` containing questions matching the status.
+
+        Args:
+            status: A single status string (e.g. ``"approved"``) or list of statuses.
+
+        Returns:
+            A new :class:`GoldenSet` filtered by status.
+        """
+        statuses = {status.lower()} if isinstance(status, str) else {s.lower() for s in status}
+        filtered = [q for q in self.questions if q.status.lower() in statuses]
         return GoldenSet(
             name=self.name,
             version=self.version,
