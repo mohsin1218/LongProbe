@@ -1,6 +1,6 @@
 # LangChain Integration Guide
 
-LongProbe provides native, seamless integration with **LangChain** vector stores and retrievers. This guide explains how to connect LongProbe to your LangChain RAG pipelines to measure retrieval recall, detect missing document chunks, and prevent regressions in CI/CD.
+LongProbe provides native, first-class integration with **LangChain** vector stores and retrievers. This guide explains how to connect LongProbe to your LangChain RAG pipelines to measure retrieval recall, detect missing document chunks, and prevent regressions in CI/CD.
 
 ---
 
