@@ -32,12 +32,17 @@ class LlamaIndexRetrieverAdapter(AbstractRetrieverAdapter):
 
         results: list[dict[str, Any]] = []
         for node in nodes_with_scores:
+            doc_id = (
+                node.node.metadata.get("chunk_id")
+                or getattr(node.node, "node_id", None)
+                or getattr(node.node, "id_", "node")
+            )
             results.append(
                 {
-                    "id": node.node.node_id,
+                    "id": str(doc_id),
                     "text": node.node.get_content(),
                     "score": float(node.score or 0.0),
-                    "metadata": dict(node.node.metadata),
+                    "metadata": dict(getattr(node.node, "metadata", {})),
                 }
             )
 

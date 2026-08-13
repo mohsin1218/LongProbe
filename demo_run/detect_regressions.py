@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Baseline Tracking - Detect RAG Regressions Over Time (TUI Version)"""
 
+import os
 import time
+import chromadb
 from longprobe import LongProbe
 from longprobe.adapters import create_adapter
 from rich.console import Console, Group
@@ -11,6 +13,7 @@ from rich.live import Live
 from rich.table import Table
 
 console = Console()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def create_progress_display(step1_status="pending", step2_status="pending", recall1=None, recall2=None):
     """Create a live progress display"""
@@ -50,13 +53,13 @@ def create_progress_display(step1_status="pending", step2_status="pending", reca
         table.add_row(
             "STEP 2",
             "[cyan]⚙️[/cyan]",
-            "[cyan]Running comparison...[/cyan]"
+            "[cyan]Comparing with baseline...[/cyan]"
         )
     else:
         table.add_row(
             "STEP 2",
             "[dim]⏳[/dim]",
-            "[dim]Waiting...[/dim]"
+            "[dim]Pending...[/dim]"
         )
     
     return table
@@ -94,15 +97,28 @@ with Live(console=console, refresh_per_second=10) as live:
     live.update(status)
     time.sleep(0.8)
     
+    chroma_path = os.path.join(SCRIPT_DIR, ".demo_chroma_db")
+    client = chromadb.PersistentClient(path=chroma_path)
+    collection = client.get_or_create_collection("demo_collection")
+    if collection.count() == 0:
+        collection.add(
+            ids=["doc_payment", "doc_refund", "doc_security"],
+            documents=[
+                "Our enterprise payment terms are net 60 days.",
+                "The refund policy allows for full refunds within 30 days of purchase. No questions asked.",
+                "Data is encrypted at rest using AES-256 and in transit using TLS 1.3.",
+            ]
+        )
+    
     adapter = create_adapter(
         "chroma",
-        collection_name="default",
-        persist_directory="./chroma_db"
+        collection_name="demo_collection",
+        persist_directory=chroma_path
     )
     probe = LongProbe(
         adapter=adapter,
-        goldens_path="goldens.yaml",
-        config_path="longprobe.yaml"
+        goldens_path=os.path.join(SCRIPT_DIR, "goldens.yaml"),
+        config_path=os.path.join(SCRIPT_DIR, "longprobe.yaml") if os.path.exists(os.path.join(SCRIPT_DIR, "longprobe.yaml")) else None
     )
     
     status = Group(

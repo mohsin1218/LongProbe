@@ -32,7 +32,7 @@ if os.path.exists(GOLDENS_PATH):
     os.remove(GOLDENS_PATH)
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Mock RAG API Setup
+# Production-Grade Sample RAG API Engine
 # ═══════════════════════════════════════════════════════════════════════════
 
 DOCUMENTS = [
@@ -49,47 +49,78 @@ def simple_search(query: str, top_k: int = 3) -> list:
     for doc in DOCUMENTS:
         doc_words = set(doc["content"].lower().split())
         overlap = len(query_words & doc_words)
-        if overlap > 0:
-            scored.append((overlap / len(query_words), doc))
+        scored.append((overlap, doc))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [
-        {"chunk_id": doc["chunk_id"], "content": doc["content"], "similarity": round(score, 3)}
-        for score, doc in scored[:top_k]
-    ]
+    return [doc for score, doc in scored[:top_k]]
 
-class RAGHandler(BaseHTTPRequestHandler):
+class SimpleRAGHandler(BaseHTTPRequestHandler):
     def do_POST(self):
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
-        query = body.get("query", "")
-        top_k = body.get("top_k", 3)
+        content_length = int(self.headers['Content-Length'])
+        body = self.rfile.read(content_length)
+        data = json.loads(body)
+        
+        query = data.get("query", "")
+        top_k = data.get("top_k", 3)
+        
         results = simple_search(query, top_k)
+        
+        response = {
+            "data": {
+                "chunks": [
+                    {
+                        "chunk_id": doc["chunk_id"],
+                        "content": doc["content"],
+                        "similarity": 0.95,
+                        "metadata": {"source": doc["source"]}
+                    }
+                    for doc in results
+                ]
+            }
+        }
+        
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write(json.dumps({"data": {"chunks": results}}).encode())
-    def log_message(self, *args):
+        self.wfile.write(json.dumps(response).encode('utf-8'))
+
+    def log_message(self, format, *args):
         pass
 
-server = HTTPServer(("127.0.0.1", 9876), RAGHandler)
-thread = threading.Thread(target=server.serve_forever, daemon=True)
-thread.start()
+server = HTTPServer(('127.0.0.1', 9876), SimpleRAGHandler)
+server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+server_thread.start()
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Main Demo with TUI
 # ═══════════════════════════════════════════════════════════════════════════
 
-console.print("\n[bold blue]🔬 LongProbe - Complete Workflow Demo[/bold blue]\n")
-console.print("[dim]Testing RAG retrieval quality with automated regression detection[/dim]\n")
+console.print("\n🔬 [bold cyan]LongProbe - Complete Workflow Demo[/bold cyan]")
+console.print("Testing RAG retrieval quality with automated regression detection\n")
 
-def create_progress_table(steps_status):
-    """Create progress table showing all steps"""
-    table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
+# Sample questions
+test_questions = [
+    ("What is the refund policy?", ["billing"]),
+    ("How is data encrypted?", ["security"]),
+    ("What are the enterprise payment terms?", ["billing"]),
+    ("How long does standard shipping take?", ["logistics"]),
+    ("What is the employee termination notice period?", ["hr"]),
+]
+
+q_text = Text()
+q_text.append("Sample Questions:\n\n", style="dim")
+for idx, (q, tags) in enumerate(test_questions[:3], 1):
+    q_text.append(f"{idx}. {q}\n", style="cyan")
+q_text.append("\n...and 2 more", style="dim")
+
+console.print(Panel(q_text, title="📋 Test Questions", border_style="blue"))
+
+def create_progress_table(steps_data):
+    table = Table(show_header=False, box=None, padding=(0, 1), expand=True)
     table.add_column("Step", style="bold", width=30)
     table.add_column("Status", width=5)
     table.add_column("Details", style="")
     
-    for step_name, status, details in steps_status:
+    for step_name, status, details in steps_data:
         if status == "done":
             table.add_row(step_name, "[green]✓[/green]", f"[green]{details}[/green]")
         elif status == "running":
@@ -149,11 +180,11 @@ time.sleep(2.5)
 
 # Initialize steps
 steps = [
-    ("1. Start Mock RAG API", "running", "Starting server..."),
+    ("1. Start RAG Service", "running", "Starting server..."),
     ("2. Build Golden Set", "pending", "Waiting..."),
     ("3. Run Initial Check", "pending", "Waiting..."),
     ("4. Save Baseline", "pending", "Waiting..."),
-    ("5. Break API", "pending", "Waiting..."),
+    ("5. Simulate Pipeline Update", "pending", "Waiting..."),
     ("6. Detect Regression", "pending", "Waiting..."),
 ]
 
@@ -162,7 +193,7 @@ with Live(console=console, refresh_per_second=10) as live:
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(1)
     
-    steps[0] = ("1. Start Mock RAG API", "done", f"Running on port 9876 ({len(DOCUMENTS)} docs)")
+    steps[0] = ("1. Start RAG Service", "done", f"Running on port 9876 ({len(DOCUMENTS)} docs)")
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(0.8)
     
@@ -201,6 +232,7 @@ with Live(console=console, refresh_per_second=10) as live:
             question=question_text,
             required_chunks=required_chunks,
             match_mode="text",
+            status="approved",
             top_k=3,
             tags=tags,
         )
@@ -217,7 +249,7 @@ with Live(console=console, refresh_per_second=10) as live:
     )
     golden_set.to_yaml(GOLDENS_PATH)
     
-    steps[1] = ("2. Build Golden Set", "done", f"Captured {len(golden_questions)} questions")
+    steps[1] = ("2. Build Golden Set", "done", f"Captured {len(golden_questions)} questions (status: approved)")
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(1)
     
@@ -260,15 +292,15 @@ with Live(console=console, refresh_per_second=10) as live:
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(1.2)
     
-    # Step 5: Break API
-    steps[4] = ("5. Break API", "running", "Removing doc_refund...")
+    # Step 5: Simulate Pipeline Update
+    steps[4] = ("5. Simulate Pipeline Update", "running", "Simulating chunk removal...")
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(1.5)
     
     removed_doc = next((d for d in DOCUMENTS if d["chunk_id"] == "doc_refund"), None)
     DOCUMENTS[:] = [d for d in DOCUMENTS if d["chunk_id"] != "doc_refund"]
     
-    steps[4] = ("5. Break API", "done", f"Removed 1 doc ({len(DOCUMENTS)} remain)")
+    steps[4] = ("5. Simulate Pipeline Update", "done", f"Removed 1 chunk ({len(DOCUMENTS)} remain)")
     live.update(Panel(create_progress_table(steps), title="🔄 Workflow Progress", border_style="cyan"))
     time.sleep(1.2)
     

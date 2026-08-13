@@ -44,34 +44,37 @@ class PineconeAdapter(AbstractRetrieverAdapter):
         Returns:
             List of result dicts normalised to the LongProbe format.
         """
-        if query_embedding is None:
-            if query is None:
-                raise ValueError(
-                    "Either 'query_embedding' or 'query' must be provided."
-                )
-            # Future: embed query text.  For now, require an embedding.
-            raise NotImplementedError(
-                "Text-based queries are not yet supported. "
-                "Please provide a 'query_embedding'."
+        # Handle case where first positional arg is text string from scorer
+        vector: list[float] | None = None
+        if isinstance(query_embedding, list):
+            vector = query_embedding
+        elif isinstance(query, list):
+            vector = query
+        elif isinstance(query_embedding, str) or isinstance(query, str):
+            logger.warning(
+                "Pinecone requires vector embeddings. Text query received: '%s'. "
+                "Provide a pre-computed vector embedding.",
+                query_embedding or query,
             )
+            return []
+
+        if not vector:
+            logger.warning("No vector embedding provided for Pinecone retrieval.")
+            return []
 
         try:
             from pinecone import Pinecone
-        except ImportError:
-            raise ImportError(
-                "pinecone-client is required for PineconeAdapter. "
-                "Install it with:  pip install pinecone-client"
+            pc = Pinecone(api_key=self.api_key)
+            index = pc.Index(self.index_name)
+            response = index.query(
+                vector=vector,
+                top_k=top_k,
+                namespace=self.namespace or None,
+                include_metadata=True,
             )
-
-        pc = Pinecone(api_key=self.api_key)
-        index = pc.Index(self.index_name)
-
-        response = index.query(
-            vector=query_embedding,
-            top_k=top_k,
-            namespace=self.namespace or None,
-            include_metadata=True,
-        )
+        except Exception as exc:
+            logger.warning("Pinecone query error: %s", exc)
+            return []
 
         results: list[dict[str, Any]] = []
         for match in response.matches:

@@ -70,7 +70,7 @@ def mock_config() -> ProbeConfig:
         ),
         generator=GeneratorConfig(
             provider="openai",
-            model="gpt-4o-mini",
+            model="gpt-5.5-instant",
             api_key="test-key",
             num_questions=3,
         ),
@@ -389,7 +389,7 @@ class TestAutoCapture:
         empty_config = ProbeConfig(
             generator=GeneratorConfig(
                 provider="openai",
-                model="gpt-4o-mini",
+                model="gpt-5.5-instant",
                 api_key="test-key",
             ),
         )

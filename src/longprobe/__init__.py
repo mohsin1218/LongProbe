@@ -5,7 +5,15 @@ Define Golden Questions once. Run ``longprobe check`` on every commit.
 Get an exact diff of which document chunks were lost — before your users notice.
 """
 
-from longprobe.adapters import create_adapter
+from longprobe.adapters import (
+    ChromaAdapter,
+    HttpAdapter,
+    LangChainRetrieverAdapter,
+    LlamaIndexRetrieverAdapter,
+    PineconeAdapter,
+    QdrantAdapter,
+    create_adapter,
+)
 from longprobe.adapters.base import AbstractRetrieverAdapter
 from longprobe.config import ProbeConfig
 from longprobe.core.baseline import BaselineStore
@@ -19,11 +27,17 @@ __version__ = "0.1.0"
 __all__ = [
     "AbstractRetrieverAdapter",
     "BaselineStore",
+    "ChromaAdapter",
     "DiffReporter",
     "GoldenQuestion",
     "GoldenSet",
+    "HttpAdapter",
+    "LangChainRetrieverAdapter",
+    "LlamaIndexRetrieverAdapter",
+    "PineconeAdapter",
     "ProbeConfig",
     "ProbeReport",
+    "QdrantAdapter",
     "QueryEmbedder",
     "QuestionResult",
     "RecallScorer",
@@ -52,11 +66,17 @@ class LongProbe:
         goldens_path: str = "goldens.yaml",
         config_path: str = "longprobe.yaml",
         recall_threshold: float | None = None,
+        include_drafts: bool = False,
+        golden_set: "GoldenSet | None" = None,
     ):
         from pathlib import Path
 
         self.adapter = adapter
-        self.golden_set = GoldenSet.from_yaml(goldens_path)
+        if golden_set is not None:
+            raw_set = golden_set
+        else:
+            raw_set = GoldenSet.from_yaml(goldens_path)
+        self.golden_set = raw_set if include_drafts else raw_set.filter_by_status("approved")
 
         config_file = Path(config_path)
         if config_file.exists():

@@ -27,7 +27,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.prompt import Prompt
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from longprobe.adapters import (
@@ -40,6 +40,7 @@ from longprobe.config import GeneratorConfig, ProbeConfig
 from longprobe.core.baseline import BaselineStore
 from longprobe.core.diff import DiffReporter
 from longprobe.core.docparser import DocumentParser
+from longprobe.core.explain import explain_failure
 from longprobe.core.generator import QuestionGenerator
 from longprobe.core.golden import GoldenQuestion, GoldenSet, generate_question_id
 from longprobe.core.scorer import ProbeReport, RecallScorer
@@ -483,6 +484,7 @@ def _run_probe(
     top_k_override: int | None = None,
     threshold_override: float | None = None,
     tags: list[str] | None = None,
+    include_drafts: bool = False,
 ) -> tuple[ProbeConfig, Any, ProbeReport]:
     """Shared logic used by ``check``, ``baseline save``, ``diff``, and ``watch``.
 
@@ -504,6 +506,21 @@ def _run_probe(
             golden_set = golden_set.filter_by_tags(tags)
             if not golden_set.questions:
                 console.print(f"[bold yellow]Warning:[/bold yellow] No questions match the provided tags: {tags}")
+                raise typer.Exit(0)
+
+        draft_count = sum(1 for q in golden_set.questions if q.status.lower() == "draft")
+        if not include_drafts:
+            golden_set = golden_set.filter_by_status("approved")
+            if draft_count > 0:
+                console.print(
+                    f"[dim]Notice: {draft_count} draft question(s) excluded. "
+                    f"Run [cyan]longprobe edit[/cyan] to review and approve.[/dim]\n"
+                )
+            if not golden_set.questions:
+                console.print(
+                    "[bold yellow]Warning:[/bold yellow] No approved golden questions found.\n"
+                    "Run [cyan]longprobe edit[/cyan] to review draft questions or use [cyan]--include-drafts[/cyan]."
+                )
                 raise typer.Exit(0)
 
         # 2. Load config
@@ -647,12 +664,17 @@ def check(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0\u20131.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
         "--tag",
         help="Only run questions that have this tag (can be specified multiple times).",
+    ),
+    include_drafts: bool = typer.Option(
+        False,
+        "--include-drafts",
+        help="Include draft questions in the evaluation run.",
     ),
 ) -> None:
     """Run probes against the golden set and report retrieval quality."""
@@ -662,6 +684,7 @@ def check(
         top_k_override=top_k,
         threshold_override=threshold,
         tags=tag,
+        include_drafts=include_drafts,
     )
 
     # Build diff_result for display if regression was detected
@@ -716,7 +739,7 @@ def baseline_save(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0\u20131.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
@@ -724,14 +747,31 @@ def baseline_save(
         help="Only run questions that have this tag (can be specified multiple times).",
     ),
 ) -> None:
-    """Run probes and persist the report as a named baseline snapshot."""
+    """Run probes strictly on approved questions and persist the report as a named baseline snapshot."""
     cfg, _adapter, report = _run_probe(
         goldens_path=goldens,
         config_path=config,
         top_k_override=top_k,
         threshold_override=threshold,
         tags=tag,
+        include_drafts=False,
     )
+
+    effective_threshold = (
+        threshold if threshold is not None else cfg.scoring.recall_threshold
+    )
+    if report.overall_recall < effective_threshold:
+        console.print(
+            Panel(
+                f"[bold red]Quality Gate Error:[/bold red] Baseline recall ({report.overall_recall:.2f}) "
+                f"is below required threshold ({effective_threshold:.2f}).\n"
+                f"  Evaluated: {len(report.results)} approved question(s)\n"
+                f"  Baseline '[bold cyan]{label}[/bold cyan]' was NOT saved.",
+                title="Quality Gate Error",
+                border_style="red",
+            ),
+        )
+        raise typer.Exit(1)
 
     store = BaselineStore(db_path=cfg.baseline.db_path)
     store.save(report=report, label=label)
@@ -739,7 +779,7 @@ def baseline_save(
     console.print(
         Panel(
             f"Baseline [bold cyan]{label}[/bold cyan] saved successfully.\n"
-            f"  Questions: {len(report.results)}\n"
+            f"  Questions: {len(report.results)} (approved)\n"
             f"  Overall recall: {report.overall_recall:.2f}\n"
             f"  Pass rate: {report.pass_rate:.2f}\n"
             f"  Location: {cfg.baseline.db_path}",
@@ -835,11 +875,19 @@ def baseline_delete(
 
 @app.command()
 def diff(
+    baseline_a: str | None = typer.Argument(
+        None,
+        help="First baseline label (or target baseline if comparing two stored snapshots).",
+    ),
+    baseline_b: str | None = typer.Argument(
+        None,
+        help="Second baseline label to compare against first baseline.",
+    ),
     baseline_label: str = typer.Option(
         "latest",
         "--baseline",
         "-b",
-        help="Baseline label to compare against.",
+        help="Baseline label to compare against live probe run.",
     ),
     goldens: Path = typer.Option(
         "goldens.yaml",
@@ -869,30 +917,81 @@ def diff(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0\u20131.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
         "--tag",
         help="Only run questions that have this tag (can be specified multiple times).",
     ),
+    include_drafts: bool = typer.Option(
+        False,
+        "--include-drafts",
+        help="Include draft questions (live run mode only).",
+    ),
 ) -> None:
-    """Compare current probe results against a saved baseline."""
+    """Compare probe results against a saved baseline, or compare two historical snapshots."""
+    cfg = _load_config(config)
+    store = BaselineStore(db_path=cfg.baseline.db_path)
+
+    # Mode 1: Compare two historical baselines: longprobe diff baseline_a baseline_b
+    if baseline_a is not None and baseline_b is not None:
+        if include_drafts:
+            console.print("[dim]Note: --include-drafts applies to live probe runs only.[/dim]\n")
+
+        b1 = store.load(baseline_a)
+        if b1 is None:
+            console.print(f"[bold red]Error:[/bold red] Baseline '{baseline_a}' not found.")
+            raise typer.Exit(1)
+
+        b2 = store.load(baseline_b)
+        if b2 is None:
+            console.print(f"[bold red]Error:[/bold red] Baseline '{baseline_b}' not found.")
+            raise typer.Exit(1)
+
+        diff_reporter = DiffReporter()
+        diff_result = diff_reporter.diff(current=b2, baseline=b1)
+        diff_dict = asdict(diff_result)
+
+        _display_results(b2, output, diff_dict)
+
+        if threshold is not None and b2.overall_recall < threshold:
+            console.print(
+                f"\n[bold red]Quality Gate Failure:[/bold red] Target baseline '{baseline_b}' recall "
+                f"({b2.overall_recall:.2f}) is below threshold ({threshold:.2f}).",
+            )
+            sys.exit(1)
+
+        if diff_result.regressions:
+            console.print(
+                f"\n[bold red]{len(diff_result.regressions)} regression(s) detected between "
+                f"'{baseline_a}' and '{baseline_b}'.[/bold red]",
+            )
+            sys.exit(1)
+        else:
+            console.print(
+                f"\n[bold green]No regressions detected between "
+                f"'{baseline_a}' and '{baseline_b}'.[/bold green]",
+            )
+        return
+
+    # Mode 2: Live run diff against baseline
+    target_baseline_label = baseline_a if baseline_a is not None else baseline_label
+
     cfg, _adapter, report = _run_probe(
         goldens_path=goldens,
         config_path=config,
         top_k_override=top_k,
         threshold_override=threshold,
         tags=tag,
+        include_drafts=include_drafts,
     )
 
-    store = BaselineStore(db_path=cfg.baseline.db_path)
-    baseline = store.load(baseline_label)
-
+    baseline = store.load(target_baseline_label)
     if baseline is None:
         console.print(
-            f"[bold red]Error:[/bold red] Baseline '{baseline_label}' not found.\n"
-            f"Run [cyan]longprobe baseline save --label {baseline_label}[/cyan] "
+            f"[bold red]Error:[/bold red] Baseline '{target_baseline_label}' not found.\n"
+            f"Run [cyan]longprobe baseline save --label {target_baseline_label}[/cyan] "
             "to create it.",
         )
         raise typer.Exit(1)
@@ -907,13 +1006,13 @@ def diff(
     if diff_result.regressions:
         console.print(
             f"\n[bold red]{len(diff_result.regressions)} regression(s) detected against "
-            f"baseline '{baseline_label}'.[/bold red]",
+            f"baseline '{target_baseline_label}'.[/bold red]",
         )
         sys.exit(1)
     else:
         console.print(
             f"\n[bold green]No regressions detected against "
-            f"baseline '{baseline_label}'.[/bold green]",
+            f"baseline '{target_baseline_label}'.[/bold green]",
         )
 
 
@@ -1182,22 +1281,26 @@ def capture(
         q_id = generate_question_id(q_text, prefix=id_prefix, existing_ids=existing_ids)
         existing_ids.add(q_id)
 
+        status_val = "draft" if auto else "approved"
         golden_q = GoldenQuestion(
             id=q_id,
             question=q_text,
             match_mode=match_mode,
             required_chunks=approved_chunks,
             tags=list(tag),
+            status=status_val,
             top_k=top_k,
         )
         new_questions.append(golden_q)
-        console.print(f"   [green]✅ Saved question '{q_id}' with {len(approved_chunks)} required chunks.[/green]")
+        console.print(f"   [green]✅ Saved question '{q_id}' ({status_val}) with {len(approved_chunks)} required chunks.[/green]")
 
     # 5. Merge and save
     if new_questions:
         added = golden_set.merge(new_questions)
         golden_set.to_yaml(str(goldens))
         console.print(f"\n[bold green]Successfully added {added} new question(s) to {goldens}[/bold green]")
+        if any(q.status == "draft" for q in new_questions):
+            console.print("[dim]💡 Hint: Draft questions are excluded from CI checks by default. Run [cyan]longprobe edit[/cyan] to approve, or [cyan]longprobe check --include-drafts[/cyan] to test.[/dim]")
     else:
         console.print("\n[dim]No new questions were captured.[/dim]")
 
@@ -1233,7 +1336,7 @@ def generate(
     model: str = typer.Option(
         "",
         "--model",
-        help="LLM model (overrides config). E.g. gpt-4o-mini, claude-3-haiku-20240307.",
+        help="LLM model (overrides config). E.g. gpt-5.5-instant, claude-haiku-4-5.",
     ),
     config: Path = typer.Option(
         "longprobe.yaml",
@@ -1304,8 +1407,8 @@ def generate(
 
     effective_n = num_questions if num_questions > 0 else gen_config.num_questions
 
-    # 2. Check API key early.
-    if not gen_config.api_key:
+    # 2. Check API key early (skip for local providers like ollama).
+    if not gen_config.api_key and gen_config.provider.lower() not in ("ollama", "local"):
         # Try common env vars based on provider.
         import os
         env_hints = {
@@ -1469,6 +1572,7 @@ def generate(
                 match_mode=match_mode,
                 required_chunks=approved_chunks,
                 tags=list(tag),
+                status="draft",
                 top_k=top_k,
             )
             new_questions.append(golden_q)
@@ -1490,7 +1594,9 @@ def generate(
                 f"Generated:   [bold cyan]{len(questions)}[/bold cyan] questions\n"
                 f"Captured:    [bold green]{captured_count}[/bold green] questions\n"
                 f"Skipped:     [bold yellow]{skipped}[/bold yellow] (no results / errors)\n"
-                f"Saved to:    [bold]{goldens}[/bold]",
+                f"Status:      [bold yellow]draft[/bold yellow] (unapproved)\n"
+                f"Saved to:    [bold]{goldens}[/bold]\n\n"
+                f"[dim]💡 Hint: Run [cyan]longprobe edit[/cyan] to approve, or [cyan]longprobe check --include-drafts[/cyan] to test.[/dim]",
                 title="Auto-Capture Complete",
                 border_style="green" if captured_count > 0 else "yellow",
             )
@@ -1516,7 +1622,8 @@ def generate(
         console.print(
             Panel(
                 f"Generated [bold cyan]{len(questions)}[/bold cyan] questions.\n"
-                f"Saved to [bold]{output}[/bold]",
+                f"Saved to [bold]{output}[/bold]\n\n"
+                f"[dim]💡 Hint: Run [cyan]longprobe edit[/cyan] to review & approve questions.[/dim]",
                 title="Generation Complete",
                 border_style="green",
             )
@@ -1525,6 +1632,235 @@ def generate(
         # Print to stdout, one per line.
         for q in questions:
             console.print(q)
+
+
+# ---------------------------------------------------------------------------
+# Edit command & helpers
+# ---------------------------------------------------------------------------
+
+
+def edit_approve_all_drafts(golden_set: GoldenSet) -> int:
+    """Promote all questions with status 'draft' to 'approved'. Returns count updated."""
+    updated = 0
+    for q in golden_set.questions:
+        if q.status.lower() == "draft":
+            q.status = "approved"
+            updated += 1
+    return updated
+
+
+def edit_set_status(golden_set: GoldenSet, question_id: str, new_status: str) -> bool:
+    """Set status for a question by ID. Returns True if question found and updated."""
+    for q in golden_set.questions:
+        if q.id == question_id:
+            q.status = new_status.lower()
+            return True
+    return False
+
+
+def edit_update_question(
+    golden_set: GoldenSet,
+    question_id: str,
+    question_text: str | None = None,
+    required_chunks: list[str] | None = None,
+    match_mode: str | None = None,
+    top_k: int | None = None,
+    status: str | None = None,
+) -> bool:
+    """Update fields on a question by ID. Returns True if updated."""
+    for q in golden_set.questions:
+        if q.id == question_id:
+            if question_text is not None:
+                q.question = question_text
+            if required_chunks is not None:
+                q.required_chunks = required_chunks
+            if match_mode is not None:
+                q.match_mode = match_mode.lower()
+            if top_k is not None:
+                q.top_k = top_k
+            if status is not None:
+                q.status = status.lower()
+            return True
+    return False
+
+
+def edit_delete_question(golden_set: GoldenSet, question_id: str) -> bool:
+    """Delete a question from golden set by ID. Returns True if deleted."""
+    original_len = len(golden_set.questions)
+    golden_set.questions = [q for q in golden_set.questions if q.id != question_id]
+    return len(golden_set.questions) < original_len
+
+
+@app.command()
+def edit(
+    goldens: Path = typer.Option(
+        "goldens.yaml",
+        "--goldens",
+        "-g",
+        help="Path to golden questions YAML file to edit.",
+    ),
+) -> None:
+    """Interactive TUI editor to browse, edit, and approve golden questions."""
+    if not goldens.exists():
+        console.print(f"[bold red]Error:[/bold red] Golden set file not found: {goldens}")
+        raise typer.Exit(1)
+
+    golden_set = GoldenSet.from_yaml(str(goldens))
+    modified = False
+
+    while True:
+        draft_count = sum(1 for q in golden_set.questions if q.status.lower() == "draft")
+        approved_count = sum(1 for q in golden_set.questions if q.status.lower() == "approved")
+
+        console.print()
+        table = Table(
+            title=f"Golden Questions: {golden_set.name} (v{golden_set.version})",
+            header_style="bold cyan",
+            show_lines=True,
+        )
+        table.add_column("#", style="dim", width=4)
+        table.add_column("ID", style="bold cyan", max_width=25)
+        table.add_column("Status", width=12)
+        table.add_column("Match", width=10)
+        table.add_column("Top-K", width=7)
+        table.add_column("Question", max_width=50)
+
+        for idx, q in enumerate(golden_set.questions, 1):
+            status_badge = (
+                "[bold green]APPROVED[/bold green]"
+                if q.status.lower() == "approved"
+                else "[bold yellow]DRAFT[/bold yellow]"
+            )
+            table.add_row(
+                str(idx),
+                q.id,
+                status_badge,
+                q.match_mode,
+                str(q.top_k),
+                q.question[:47] + "..." if len(q.question) > 50 else q.question,
+            )
+
+        console.print(table)
+        console.print(
+            f"[dim]Total: {len(golden_set.questions)} | Approved: {approved_count} | Drafts: {draft_count}[/dim]\n"
+        )
+
+        console.print("[bold]Options:[/bold]")
+        console.print("  [cyan]a[/cyan] - Approve all draft questions")
+        console.print("  [cyan]e <#>[/cyan] - Edit question by index (e.g. e 1)")
+        console.print("  [cyan]d <#>[/cyan] - Delete question by index (e.g. d 1)")
+        console.print("  [cyan]s[/cyan] - Save and exit")
+        console.print("  [cyan]q[/cyan] - Quit without saving")
+
+        action = Prompt.ask("\nAction", default="s").strip().lower()
+
+        if action == "a":
+            count = edit_approve_all_drafts(golden_set)
+            if count > 0:
+                modified = True
+                console.print(f"[bold green]Approved {count} draft question(s).[/bold green]")
+            else:
+                console.print("[yellow]No draft questions to approve.[/yellow]")
+        elif action.startswith("e "):
+            try:
+                idx = int(action.split()[1]) - 1
+                if 0 <= idx < len(golden_set.questions):
+                    target_q = golden_set.questions[idx]
+                    console.print(f"\n[bold cyan]Editing question '{target_q.id}'[/bold cyan]")
+                    new_q_text = Prompt.ask("Question text", default=target_q.question)
+                    new_match_mode = Prompt.ask(
+                        "Match mode (id, text, semantic)",
+                        default=target_q.match_mode,
+                        choices=["id", "text", "semantic"],
+                    )
+                    new_status = Prompt.ask(
+                        "Status (approved, draft)",
+                        default=target_q.status,
+                        choices=["approved", "draft"],
+                    )
+
+                    edit_update_question(
+                        golden_set,
+                        target_q.id,
+                        question_text=new_q_text,
+                        match_mode=new_match_mode,
+                        status=new_status,
+                    )
+                    modified = True
+                    console.print(f"[green]Updated question '{target_q.id}'.[/green]")
+                else:
+                    console.print("[red]Invalid index.[/red]")
+            except (ValueError, IndexError):
+                console.print("[red]Invalid edit command format. Use 'e <index>'.[/red]")
+        elif action.startswith("d "):
+            try:
+                idx = int(action.split()[1]) - 1
+                if 0 <= idx < len(golden_set.questions):
+                    target_q = golden_set.questions[idx]
+                    if edit_delete_question(golden_set, target_q.id):
+                        modified = True
+                        console.print(f"[red]Deleted question '{target_q.id}'.[/red]")
+                else:
+                    console.print("[red]Invalid index.[/red]")
+            except (ValueError, IndexError):
+                console.print("[red]Invalid delete command format. Use 'd <index>'.[/red]")
+        elif action == "s":
+            golden_set.to_yaml(str(goldens))
+            console.print(f"[bold green]Saved golden set to {goldens}[/bold green]")
+            break
+        elif action == "q":
+            if modified:
+                if Confirm.ask("Quit without saving unsaved changes?"):
+                    console.print("[dim]Exited without saving.[/dim]")
+                    break
+            else:
+                break
+
+
+@app.command()
+def explain(
+    question_id: str = typer.Argument(
+        ...,
+        help="ID of the question to explain failure for.",
+    ),
+    goldens: Path = typer.Option(
+        "goldens.yaml",
+        "--goldens",
+        "-g",
+        help="Path to golden questions YAML.",
+    ),
+    config: Path = typer.Option(
+        "longprobe.yaml",
+        "--config",
+        "-c",
+        help="Path to config YAML.",
+    ),
+    include_drafts: bool = typer.Option(
+        False,
+        "--include-drafts",
+        help="Include draft questions in evaluation.",
+    ),
+) -> None:
+    """Print a diagnostic explanation for a failed golden question."""
+    _cfg, _adapter, report = _run_probe(
+        goldens_path=goldens,
+        config_path=config,
+        include_drafts=include_drafts,
+    )
+
+    target_res = next((r for r in report.results if r.question_id == question_id), None)
+    if target_res is None:
+        console.print(f"[bold red]Error:[/bold red] Question ID '{question_id}' not found in evaluated report.")
+        raise typer.Exit(1)
+
+    explanation = explain_failure(target_res)
+    console.print(
+        Panel(
+            explanation,
+            title=f"Diagnostic Explanation: {question_id}",
+            border_style="yellow" if not target_res.passed else "green",
+        )
+    )
 
 
 # ---------------------------------------------------------------------------

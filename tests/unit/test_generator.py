@@ -23,7 +23,7 @@ def gen_config() -> GeneratorConfig:
     """Return a basic generator config."""
     return GeneratorConfig(
         provider="openai",
-        model="gpt-4o-mini",
+        model="gpt-5.5-instant",
         api_key="test-key-123",
         num_questions=5,
         temperature=0.7,
@@ -328,17 +328,17 @@ class TestProviderRouting:
         """Anthropic provider sets correct model prefix."""
         config = GeneratorConfig(
             provider="anthropic",
-            model="claude-3-haiku-20240307",
+            model="claude-haiku-4-5",
             api_key="sk-test",
         )
         kwargs = self._run_generate_for_chunk(config)
-        assert kwargs["model"] == "anthropic/claude-3-haiku-20240307"
+        assert kwargs["model"] == "anthropic/claude-haiku-4-5"
 
     def test_gemini_provider(self) -> None:
         """Gemini provider sets correct model prefix."""
-        config = GeneratorConfig(provider="gemini", model="gemini-pro", api_key="test")
+        config = GeneratorConfig(provider="gemini", model="gemini-3.6-flash", api_key="test")
         kwargs = self._run_generate_for_chunk(config)
-        assert kwargs["model"] == "gemini/gemini-pro"
+        assert kwargs["model"] == "gemini/gemini-3.6-flash"
 
     def test_custom_base_url(self) -> None:
         """Custom base_url is passed to litellm."""
@@ -366,7 +366,7 @@ class TestConfigIntegration:
         config = ProbeConfig.from_dict({
             "generator": {
                 "provider": "anthropic",
-                "model": "claude-3-haiku-20240307",
+                "model": "claude-haiku-4-5",
                 "api_key": "${ANTHROPIC_API_KEY}",
                 "num_questions": 25,
                 "temperature": 0.5,
@@ -374,7 +374,7 @@ class TestConfigIntegration:
         })
 
         assert config.generator.provider == "anthropic"
-        assert config.generator.model == "claude-3-haiku-20240307"
+        assert config.generator.model == "claude-haiku-4-5"
         assert config.generator.num_questions == 25
         assert config.generator.temperature == 0.5
 
@@ -400,5 +400,5 @@ class TestConfigIntegration:
 
         config = ProbeConfig.defaults()
         assert config.generator.provider == "openai"
-        assert config.generator.model == "gpt-4o-mini"
+        assert config.generator.model == "gpt-5.5-instant"
         assert config.generator.num_questions == 50

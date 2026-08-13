@@ -60,7 +60,11 @@ class ChromaAdapter(AbstractRetrieverAdapter):
             Scores are converted from Chroma distances (``1 - distance``).
         """
         client = self._get_client()
-        collection = client.get_collection(self.collection_name)
+        try:
+            collection = client.get_collection(self.collection_name)
+        except Exception as exc:
+            logger.warning("Chroma collection '%s' error: %s", self.collection_name, exc)
+            return []
 
         if isinstance(query, str):
             results = collection.query(

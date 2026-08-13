@@ -61,23 +61,34 @@ class QdrantAdapter(AbstractRetrieverAdapter):
         Returns:
             List of result dicts normalised to the LongProbe format.
         """
-        if query_embedding is None:
-            if query is None:
-                raise ValueError(
-                    "Either 'query_embedding' or 'query' must be provided."
-                )
-            raise NotImplementedError(
-                "Text-based queries are not yet supported. "
-                "Please provide a 'query_embedding'."
+        # Handle case where first positional arg is text string from scorer
+        vector: list[float] | None = None
+        if isinstance(query_embedding, list):
+            vector = query_embedding
+        elif isinstance(query, list):
+            vector = query
+        elif isinstance(query_embedding, str) or isinstance(query, str):
+            logger.warning(
+                "Qdrant requires vector embeddings. Text query received: '%s'. "
+                "Provide a pre-computed vector embedding.",
+                query_embedding or query,
             )
+            return []
 
-        client = self._build_client()
+        if not vector:
+            logger.warning("No vector embedding provided for Qdrant retrieval.")
+            return []
 
-        response = client.query_points(
-            collection_name=self.collection_name,
-            query=query_embedding,
-            limit=top_k,
-        )
+        try:
+            client = self._build_client()
+            response = client.query_points(
+                collection_name=self.collection_name,
+                query=vector,
+                limit=top_k,
+            )
+        except Exception as exc:
+            logger.warning("Qdrant query error for collection '%s': %s", self.collection_name, exc)
+            return []
 
         results: list[dict[str, Any]] = []
         for point in response.points:

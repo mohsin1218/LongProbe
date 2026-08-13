@@ -297,6 +297,29 @@ class TestDefaults:
 
         assert gs.questions[0].top_k == 5
 
+    def test_default_status_is_approved(self, tmp_path):
+        data = _minimal_yaml_data()
+        path = _write_yaml(tmp_path, data)
+        gs = GoldenSet.from_yaml(path)
+
+        assert gs.questions[0].status == "approved"
+
+    def test_draft_status_parsed(self, tmp_path):
+        data = _minimal_yaml_data()
+        data["questions"][0]["status"] = "draft"
+        path = _write_yaml(tmp_path, data)
+        gs = GoldenSet.from_yaml(path)
+
+        assert gs.questions[0].status == "draft"
+
+    def test_invalid_status_raises(self, tmp_path):
+        data = _minimal_yaml_data()
+        data["questions"][0]["status"] = "pending"
+        path = _write_yaml(tmp_path, data)
+
+        with pytest.raises(ValueError, match="invalid status"):
+            GoldenSet.from_yaml(path)
+
 
 # ---------------------------------------------------------------------------
 # to_yaml round-trip
@@ -382,6 +405,26 @@ class TestFilterByTags:
 
         filtered = gs.filter_by_tags([])
         assert len(filtered.questions) == 1
+
+
+class TestFilterByStatus:
+
+    def test_filter_by_approved_and_draft(self, tmp_path):
+        data = _minimal_yaml_data()
+        data["questions"].extend([
+            {"id": "q2", "question": "Q2", "required_chunks": ["c2"], "status": "draft"},
+            {"id": "q3", "question": "Q3", "required_chunks": ["c3"], "status": "approved"},
+        ])
+        path = _write_yaml(tmp_path, data)
+        gs = GoldenSet.from_yaml(path)
+
+        approved = gs.filter_by_status("approved")
+        assert len(approved.questions) == 2
+        assert {q.id for q in approved.questions} == {"q1", "q3"}
+
+        drafts = gs.filter_by_status("draft")
+        assert len(drafts.questions) == 1
+        assert drafts.questions[0].id == "q2"
 
 # ---------------------------------------------------------------------------
 # Merging

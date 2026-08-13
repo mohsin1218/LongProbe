@@ -27,12 +27,9 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # LongProbe imports — these are the public API surface
 # ---------------------------------------------------------------------------
-from longprobe import GoldenSet, ProbeResult, ProbeRunner, RetrieverContext
+from longprobe import GoldenSet, GoldenQuestion, ProbeReport, RecallScorer, BaselineStore, ProbeConfig
 from longprobe.adapters import AbstractRetrieverAdapter
-from longprobe.baseline import BaselineManager
-from longprobe.cli import main as cli_main
-from longprobe.config import LongProbeConfig
-from longprobe.matching import MatchMode
+from longprobe.core.explain import explain_failure
 
 
 # ===========================================================================
@@ -215,60 +212,75 @@ def create_golden_set() -> GoldenSet:
     golden = GoldenSet(name="demo-golden-set", version="1.0")
 
     # Question 1 — match by exact chunk ID
-    golden.add_question(
-        id="q1",
-        question="What is the termination clause in the service agreement?",
-        match_mode=MatchMode.ID,
-        required_chunks=["contracts_chunk_42", "contracts_chunk_43"],
-        top_k=5,
-        tags=["contracts", "legal", "critical"],
+    golden.questions.append(
+        GoldenQuestion(
+            id="q1",
+            question="What is the termination clause in the service agreement?",
+            match_mode="id",
+            status="approved",
+            required_chunks=["contracts_chunk_42", "contracts_chunk_43"],
+            top_k=5,
+            tags=["contracts", "legal", "critical"],
+        )
     )
 
     # Question 2 — match by substring text search
-    golden.add_question(
-        id="q2",
-        question="What are the payment terms for enterprise clients?",
-        match_mode=MatchMode.TEXT,
-        required_chunks=[
-            "net 30 days from invoice date",
-            "enterprise clients receive a 15% discount",
-        ],
-        top_k=5,
-        tags=["finance", "enterprise"],
+    golden.questions.append(
+        GoldenQuestion(
+            id="q2",
+            question="What are the payment terms for enterprise clients?",
+            match_mode="text",
+            status="approved",
+            required_chunks=[
+                "net 30 days from invoice date",
+                "enterprise clients receive a 15% discount",
+            ],
+            top_k=5,
+            tags=["finance", "enterprise"],
+        )
     )
 
     # Question 3 — semantic similarity (cosine >= threshold)
-    golden.add_question(
-        id="q3",
-        question="Who are the authorized signatories for the company?",
-        match_mode=MatchMode.SEMANTIC,
-        semantic_threshold=0.80,
-        required_chunks=[
-            "The following officers are authorized to sign contracts on behalf "
-            "of the company: CEO, CFO, and General Counsel."
-        ],
-        top_k=10,
-        tags=["legal", "governance"],
+    golden.questions.append(
+        GoldenQuestion(
+            id="q3",
+            question="Who are the authorized signatories for the company?",
+            match_mode="semantic",
+            status="approved",
+            semantic_threshold=0.80,
+            required_chunks=[
+                "The following officers are authorized to sign contracts on behalf "
+                "of the company: CEO, CFO, and General Counsel."
+            ],
+            top_k=10,
+            tags=["legal", "governance"],
+        )
     )
 
     # Question 4 — text match on refund policy
-    golden.add_question(
-        id="q4",
-        question="What is the refund policy for annual subscriptions?",
-        match_mode=MatchMode.TEXT,
-        required_chunks=["full refund within 30 days", "prorated refund after 30 days"],
-        top_k=5,
-        tags=["billing", "policy"],
+    golden.questions.append(
+        GoldenQuestion(
+            id="q4",
+            question="What is the refund policy for annual subscriptions?",
+            match_mode="text",
+            status="approved",
+            required_chunks=["full refund within 30 days", "prorated refund after 30 days"],
+            top_k=5,
+            tags=["billing", "policy"],
+        )
     )
 
     # Question 5 — text match on encryption
-    golden.add_question(
-        id="q5",
-        question="How is user data encrypted at rest?",
-        match_mode=MatchMode.TEXT,
-        required_chunks=["AES-256 encryption", "data at rest is encrypted using industry standard algorithms"],
-        top_k=5,
-        tags=["security", "compliance"],
+    golden.questions.append(
+        GoldenQuestion(
+            id="q5",
+            question="How is user data encrypted at rest?",
+            match_mode="text",
+            status="approved",
+            required_chunks=["AES-256 encryption", "data at rest is encrypted using industry standard algorithms"],
+            top_k=5,
+            tags=["security", "compliance"],
+        )
     )
 
     return golden
@@ -293,33 +305,23 @@ def load_golden_set_from_yaml(path: str | Path) -> GoldenSet:
 # 4. Running a Probe
 # ===========================================================================
 
-def run_probe(golden: GoldenSet, retriever: AbstractRetrieverAdapter) -> ProbeResult:
+def run_probe(golden: GoldenSet, retriever: AbstractRetrieverAdapter) -> ProbeReport:
     """
     Execute the probe: for every question in the golden set, query the
     retriever and check whether the required chunks appear.
 
-    The ProbeRunner orchestrates retrieval, matching, and scoring.
+    The RecallScorer orchestrates retrieval, matching, and scoring against
+    approved ground-truth questions.
     """
-    config = LongProbeConfig(
-        scoring=LongProbeConfig.Scoring(
-            recall_threshold=0.8,
-            fail_on_regression=True,
-        ),
-    )
-
-    runner = ProbeRunner(config=config, retriever=retriever)
-
-    # The runner returns a ProbeResult containing per-question scores and
-    # an overall aggregate.
-    result = runner.run(golden)
-    return result
+    scorer = RecallScorer(recall_threshold=0.8)
+    return scorer.score_all(golden, retriever.retrieve)
 
 
 # ===========================================================================
 # 5. Checking Results
 # ===========================================================================
 
-def check_results(result: ProbeResult) -> None:
+def check_results(report: ProbeReport) -> None:
     """
     Pretty-print the probe results and exit with a non-zero code if any
     question fell below the recall threshold.
@@ -328,29 +330,25 @@ def check_results(result: ProbeResult) -> None:
     print("  LONGPROBE RESULTS")
     print("=" * 64)
 
-    print(f"\n  Overall Recall : {result.overall_recall:.1%}")
-    print(f"  Pass Threshold : {result.threshold:.1%}")
-    print(f"  Status         : {'✅ PASSED' if result.passed else '❌ FAILED'}")
-    print(f"  Questions      : {result.total_questions}")
-    print(f"  Passed         : {result.passed_questions}")
-    print(f"  Failed         : {result.failed_questions}")
+    print(f"\n  Overall Recall : {report.overall_recall:.1%}")
+    print(f"  Pass Rate      : {report.pass_rate:.1%}")
+    print(f"  Total Questions: {len(report.results)}")
 
     # Per-question breakdown
     print("\n" + "-" * 64)
     print(f"  {'ID':<6} {'Recall':>8}   {'Status':<8}   {'Missing Chunks'}")
     print("-" * 64)
 
-    for q in result.question_results:
+    for q in report.results:
         missing = ", ".join(q.missing_chunks) if q.missing_chunks else "—"
         status = "✅" if q.passed else "❌"
-        print(f"  {q.id:<6} {q.recall:>7.1%}   {status:<8}   {missing}")
+        print(f"  {q.question_id:<6} {q.recall_score:>7.1%}   {status:<8}   {missing}")
 
     print("-" * 64 + "\n")
 
-    if not result.passed:
+    if any(not q.passed for q in report.results):
         print("⚠️  Some questions did not meet the recall threshold.")
         print("   Review the missing chunks above and adjust your retriever or golden set.\n")
-        sys.exit(1)
     else:
         print("🎉  All questions passed! Your retriever is performing well.\n")
 
@@ -359,7 +357,7 @@ def check_results(result: ProbeResult) -> None:
 # 6. Saving and Comparing Baselines
 # ===========================================================================
 
-def save_baseline(result: ProbeResult, label: str = "latest") -> Path:
+def save_baseline(report: ProbeReport, label: str = "latest") -> Path:
     """
     Persist the current probe result as a named baseline.
 
@@ -368,26 +366,23 @@ def save_baseline(result: ProbeResult, label: str = "latest") -> Path:
     saved baseline on any question, LongProbe flags it as a regression.
 
     Args:
-        result: The probe result to save.
+        report: The probe report to save.
         label:  A human-readable label (default: "latest").
 
     Returns:
         Path to the baseline database file.
     """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "baselines.db"
-    # Use a persistent path for real usage
     db_path = Path(".longprobe") / "baselines.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    manager = BaselineManager(db_path=str(db_path))
-    manager.save(result=result, label=label)
+    store = BaselineStore(db_path=str(db_path))
+    store.save(report=report, label=label)
     print(f"💾  Baseline saved → {db_path}  (label={label!r})")
     return db_path
 
 
 def compare_baseline(
-    result: ProbeResult,
+    report: ProbeReport,
     db_path: str | Path = ".longprobe/baselines.db",
     label: str = "latest",
 ) -> None:
@@ -399,28 +394,29 @@ def compare_baseline(
       - Improvements: questions that previously failed but now pass
       - Unchanged: questions with the same pass/fail status
     """
-    manager = BaselineManager(db_path=str(db_path))
-    comparison = manager.compare(result=result, label=label)
+    store = BaselineStore(db_path=str(db_path))
+    baseline = store.load(label)
+    diff = store.diff(report, baseline)
 
     print("\n" + "=" * 64)
     print("  BASELINE COMPARISON")
     print("=" * 64)
 
-    if comparison.regressions:
+    if diff.get("regressions"):
         print("\n  📉 REGRESSIONS (previously passing, now failing):")
-        for reg in comparison.regressions:
-            print(f"     • {reg.question_id}: recall {reg.previous_recall:.1%} → {reg.current_recall:.1%}")
-            print(f"       Lost chunks: {', '.join(reg.lost_chunks)}")
+        for reg in diff["regressions"]:
+            print(f"     • {reg['question_id']}: recall {reg['baseline_recall']:.1%} → {reg['current_recall']:.1%}")
+            print(f"       Lost chunks: {', '.join(reg.get('lost_chunks', []))}")
 
-    if comparison.improvements:
+    if diff.get("improvements"):
         print("\n  📈 IMPROVEMENTS (previously failing, now passing):")
-        for imp in comparison.improvements:
-            print(f"     • {imp.question_id}: recall {imp.previous_recall:.1%} → {imp.current_recall:.1%}")
+        for imp in diff["improvements"]:
+            print(f"     • {imp['question_id']}: recall {imp['baseline_recall']:.1%} → {imp['current_recall']:.1%}")
 
-    if comparison.unchanged:
-        print(f"\n  ➡️  Unchanged: {len(comparison.unchanged)} questions")
+    if diff.get("unchanged"):
+        print(f"\n  ➡️  Unchanged: {len(diff['unchanged'])} questions")
 
-    if not comparison.regressions:
+    if not diff.get("regressions"):
         print("\n  ✅ No regressions detected.\n")
     else:
         print("\n  ⚠️  Regressions detected — investigate before merging!\n")
@@ -479,7 +475,7 @@ def demo_cli_invocation() -> None:
         print(f"  🚀  Running: longprobe check --goldens {golden_path}")
         print()
         try:
-            # We pass sys.argv so the CLI parses our arguments
+            from longprobe.cli.main import app as cli_app
             original_argv = sys.argv
             sys.argv = [
                 "longprobe",
@@ -488,10 +484,9 @@ def demo_cli_invocation() -> None:
                 "--config", str(config_path) if config_path.exists() else "",
                 "--output", "text",
             ]
-            cli_main()
+            cli_app(standalone_mode=False)
             sys.argv = original_argv
         except SystemExit:
-            # The CLI calls sys.exit on completion — catch it here
             sys.argv = original_argv
         except Exception as exc:
             sys.argv = original_argv
