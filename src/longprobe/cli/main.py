@@ -40,8 +40,8 @@ from longprobe.config import GeneratorConfig, ProbeConfig
 from longprobe.core.baseline import BaselineStore
 from longprobe.core.diff import DiffReporter
 from longprobe.core.docparser import DocumentParser
-from longprobe.core.generator import QuestionGenerator
 from longprobe.core.explain import explain_failure
+from longprobe.core.generator import QuestionGenerator
 from longprobe.core.golden import GoldenQuestion, GoldenSet, generate_question_id
 from longprobe.core.scorer import ProbeReport, RecallScorer
 
@@ -664,7 +664,7 @@ def check(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0–1.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
@@ -739,7 +739,7 @@ def baseline_save(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0–1.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
@@ -917,7 +917,7 @@ def diff(
         None,
         "--threshold",
         "-t",
-        help="Override recall threshold (0.0–1.0).",
+        help="Override recall threshold (0.0-1.0).",
     ),
     tag: list[str] = typer.Option(
         [],
@@ -1842,7 +1842,7 @@ def explain(
     ),
 ) -> None:
     """Print a diagnostic explanation for a failed golden question."""
-    cfg, _adapter, report = _run_probe(
+    _cfg, _adapter, report = _run_probe(
         goldens_path=goldens,
         config_path=config,
         include_drafts=include_drafts,
