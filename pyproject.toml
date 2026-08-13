@@ -47,14 +47,14 @@ Changelog = "https://github.com/ENDEVSOLS/LongProbe/blob/main/CHANGELOG.md"
 "Source Code" = "https://github.com/ENDEVSOLS/LongProbe"
 
 [project.optional-dependencies]
-langchain = ["langchain>=1.3.14", "langchain-core>=0.3.0"]
-llamaindex = ["llama-index>=0.14.23"]
-pinecone = ["pinecone-client>=5.0.0"]
-qdrant = ["qdrant-client>=1.19.0"]
-chroma = ["chromadb>=1.5.9"]
-openai = ["openai>=1.90.0"]
-huggingface = ["sentence-transformers>=5.6.0", "torch>=2.12.0"]
-generate = ["litellm>=1.96.0", "markitdown>=0.1.7"]
+langchain = ["langchain>=0.1.0", "langchain-core>=0.1.0"]
+llamaindex = ["llama-index>=0.10.0"]
+pinecone = ["pinecone-client>=3.0.0"]
+qdrant = ["qdrant-client>=1.7.0"]
+chroma = ["chromadb>=0.4.0"]
+openai = ["openai>=1.0.0"]
+huggingface = ["sentence-transformers>=2.2.0", "torch>=2.0.0"]
+generate = ["litellm>=1.40.0,<1.96.0", "markitdown>=0.1.0"]
 all = [
     "longprobe[langchain]",
     "longprobe[llamaindex]",
